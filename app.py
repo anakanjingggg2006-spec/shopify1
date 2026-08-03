@@ -6,6 +6,7 @@ import uuid
 import random
 import requests
 import urllib3
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -112,10 +113,6 @@ class IyzicoChecker:
         self.cookies['shopify_client_id'] = self.shopifyClientId
 
         postData = json.dumps({
-            'items': [['id' if False else 'id', self.variantId, 'quantity' if False else 'quantity', 1, 'properties' if False else 'properties', {}]] # Python tuple hack to mimic PHP stdClass
-        })
-        # Fix tuple hack above to proper JSON
-        postData = json.dumps({
             'items': [{'id': int(self.variantId), 'quantity': 1, 'properties': {}}]
         })
 
@@ -187,8 +184,6 @@ class IyzicoChecker:
         self.checkoutUrl = currentUrl
 
         # Session token çıkar
-        if re.search(r'sessionToken["\s:]+["\'](AAE[A-Za-z0-9_\-+=\/]+)["\']', body, m := re.search(r'sessionToken["\s:]+["\'](AAE[A-Za-z0-9_\-+=\/]+)["\']', body)):
-            pass # m is assigned in walrus
         m = re.search(r'sessionToken["\s:]+["\'](AAE[A-Za-z0-9_\-+=\/]+)["\']', body)
         if m: self.sessionToken = m.group(1)
 
@@ -767,17 +762,20 @@ class IyzicoChecker:
         start_time = time.time()
         self.setProxy(proxy)
 
-        # Parse site
+        # FIX: Gunakan urllib.parse untuk parse URL dengan betul
         site = site.rstrip('/')
-        if not site.startswith('http'): site = 'https://' + site
-        parsed = site.split('//')[1].split('/')
-        self.baseUrl = site.split('//')[0] + '//' + parsed[0]
-        path = '/' + '/'.join(parsed[1:]) if len(parsed) > 1 else ''
+        if not site.startswith('http'):
+            site = 'https://' + site
+            
+        parsed = urlparse(site)
+        self.baseUrl = f"{parsed.scheme}://{parsed.netloc}"
+        path = parsed.path
         
+        # Carik product path
         if '/products/' in path:
             self.productPath = path.split('/products/')[1].split('?')[0]
         else:
-            return self.buildResponse(card_input, "ERROR", False, start_time, "Invalid site URL", proxy)
+            return self.buildResponse(card_input, "ERROR", False, start_time, "Invalid site URL (no /products/)", proxy)
 
         # Parse card
         parts = card_input.split('|')
@@ -847,7 +845,7 @@ class IyzicoChecker:
             "Gateway": "Shopify Payments",
             "Price": self.price,
             "Proxy": "Live" if proxy else "Direct",
-            "Response": responseCode if not rawMsg else rawMsg,
+            "Response": rawMsg if rawMsg else responseCode,
             "Status": status,
             "Time": f"{elapsed}s",
             "cc": cc
